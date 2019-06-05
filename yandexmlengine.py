@@ -71,7 +71,7 @@ class Yandexml:
             self.mode = 'world'
         
         if 'ip' in self.__dict__:            
-            self.ip = ipaddress.ip_address(self.ip if isinstance(self.ip, str) else self._get_ip())
+            self.ip = ipaddress.ip_address(self.ip if self.ip else self._get_ip())
         else:          
             self.ip = ipaddress.ip_address(self._get_ip())
         
@@ -269,6 +269,9 @@ class Yandexml:
                 
         except NoError:
             pass
+        
+        except Exception as err:
+            print(str(err), file=out)
         
         finally:
             if f != sys.stdout: f.close()        
