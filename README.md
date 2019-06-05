@@ -21,7 +21,7 @@
 **1. Command-line interface (CLI)**
 
 ```
-yandexml.py <username> <apikey> [<mode>:ru|world (default "world")] [<ip> (default: current external ip)]
+yxml.py <username> <apikey> [<mode>:ru|world (default "world")] [<ip> (default: current external ip)]
 ```
 
 * search (output results to console):
@@ -34,6 +34,8 @@ yandexml.py <username> <apikey> [<mode>:ru|world (default "world")] [<ip> (defau
 `l`
 * get all limits:
 `L`
+* create logo:
+`NOT IMPLEMENTED`
 * options for all commands:
 	* `-vv`: verbose (print errors, debug info etc) -- default
 	* `-v`: print only critical errors

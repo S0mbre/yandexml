@@ -8,36 +8,10 @@ Created on Mon Jun  3 13:03:48 2019
 import sys
 import requests
 import ipaddress
+import json
 import xml.etree.ElementTree as ET
 from datetime import datetime as dt
-
-
-REQ_TIMEOUT = 5                 # ожидание соединения и ответа (сек.) None = вечно
-REQ_HEADERS = {'Content-Type': 'text/xhtml+xml; charset=UTF-8', 
-               'Accept': 'application/xhtml+xml,application/xml', 
-               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.131 Safari/537.36',
-               'Accept-Charset': 'utf-8',
-               'Accept-Language': 'ru,en-us',
-               'Connection': 'close'}
-MAX_QUERY_WORDS = 40
-MAX_QUERY_CHARS = 400
-MAX_PASSAGES = 5
-MAX_RESULTS = 1000
-MAX_GROUPS_ON_PAGE = 100
-MAX_RESULTS_IN_GROUP = 3
-XML_QUERY = \
-r"""
-<request>    
-<query>{{}}</query>
-<maxpassages>{}</maxpassages>
-<groupings>
-<groupby attr="{{}}" mode="{{}}" groups-on-page="{}" docs-in-group="{}" />
-</groupings>        
-</request>
-""".format(MAX_PASSAGES, MAX_GROUPS_ON_PAGE, 1)
-STOP_SYMBS = list('.,:;?~!@#$%^&*()+=_<>{}[]\\|/"\'')
-IPSERVICES = ['https://api.ipify.org', 'https://ident.me', 'https://ipecho.net/plain', 'https://myexternalip.com/raw']
-SAMPLE_CAPTCHA_QUERY = 'e48a2b93de1740f48f6de0d45dc4192a'
+from globalvars import *
 
 def clean_spaces(s):
     ss = s.replace('\r\n', ' ').replace('\n', ' ').replace('\t', ' ')
@@ -61,6 +35,9 @@ class YandexXMLRequestError(YandexXMLError):
         
     def __str__(self):
         return 'ERROR {}: {}'.format(self.errorcode, self.message)
+    
+class NoError(RuntimeError):
+    pass
 
 class Yandexml:
     
@@ -71,22 +48,40 @@ class Yandexml:
     
     
     
-    def __init__(self, username, apikey, searchmode='world', hostip=None, proxies=None, captcha_callback=None):                
-        self.user = username
-        self.apikey = apikey
-        self.proxies = proxies
-        self.captcha_callback = captcha_callback       # foo(captcha_img_url) --> reply [str]
-        self.search_cookies = None
-        if searchmode in ('world', 'ru'):
-            self.mode = searchmode 
+    def __init__(self, username, apikey, mode='world', ip=None, proxy=None, captcha_callback=None):                
+        self.reset(user=username, apikey=apikey, mode=mode, ip=ip, proxy=proxy, captcha_callback=captcha_callback)
+        
+    def reset(self, **kwargs):
+        if not kwargs: return
+        self.__dict__.update({k: kwargs[k] for k in kwargs if k in('user', 'apikey', 'proxy', 'captcha_callback', 'mode', 'ip')})
+        
+        if 'proxy' in self.__dict__:
+            if isinstance(self.proxy, str):
+                self.proxy = {'http': self.proxy, 'https': self.proxy} if self.proxy else None
+            elif not isinstance(self.proxy, dict):
+                self.proxy = None
         else:
-            print('Параметр searchmode должен быть либо "world" либо "ru"!', file=sys.stderr)
-            raise ValueError
-        self.ip = ipaddress.ip_address(hostip if hostip else self._get_ip())
+            self.proxy = None
+        
+        if 'mode' in self.__dict__:
+            if self.mode not in ('world', 'ru'):
+                print('Параметр mode должен быть либо "world" либо "ru"!', file=sys.stderr)
+                raise ValueError
+        else:
+            self.mode = 'world'
+        
+        if 'ip' in self.__dict__:            
+            self.ip = ipaddress.ip_address(self.ip if isinstance(self.ip, str) else self._get_ip())
+        else:          
+            self.ip = ipaddress.ip_address(self._get_ip())
+        
+        self.search_cookies = None
         self.search_headers = dict(REQ_HEADERS) 
         self.search_headers['X-Real-Ip'] = str(self.ip)
         self.make_search_url()
+        self.raw_results = ''
         self._retry_cnt = 0
+        self._last_search_query = None
         self._nullify(True, True)
     
     def make_search_url(self):
@@ -97,26 +92,30 @@ class Yandexml:
         self.limitsurl = 'https://yandex.{}/search/xml?action=limits-info&user={}&key={}'.format(
                 'com' if self.mode == 'world' else 'ru', self.user, self.apikey)
         
-    def search(self, query):
+    def search(self, query, grouped=True):
         
         query = clean_spaces(query)[:MAX_QUERY_CHARS]
         qs = query.split()
         query = ' '.join(qs[:min(len(qs), MAX_QUERY_WORDS)])
-        query_body = XML_QUERY.format(query, 'd', 'deep')
-        #print(query_body)
+        if grouped:
+            query_body = XML_QUERY.format(query, 'd', 'deep', MAX_RESULTS_IN_GROUP)
+        else:
+            query_body = XML_QUERY.format(query, '', 'flat', 1)
         
         try:
             if self.search_cookies and 'Set-Cookie' in self.search_cookies:
                 self.search_headers['Set-Cookie'] = self.search_cookies['Set-Cookie']
             
             response = requests.post(self.baseurl, data=bytes(query_body, 'utf-8'), 
-                                     headers=self.search_headers, proxies=self.proxies, timeout=REQ_TIMEOUT,
+                                     headers=self.search_headers, proxies=self.proxy, timeout=REQ_TIMEOUT,
                                      cookies=self.search_cookies)
             
             #print(response.headers)
             #print(response.cookies)
             
-            return self.parse_results(response.text)
+            self._last_search_query = (query, grouped) 
+            self.raw_results = response.text
+            return self.parse_results(self.raw_results)
             
         except Exception as err:
             print(str(err), file=sys.stderr)
@@ -144,7 +143,13 @@ class Yandexml:
                             ***** url [str]
                             ***** domain [str]
                             ***** title [str]
-                            ***** modtime [str]
+                            ***** headline [str]
+                            ***** modified [datetime]
+                            ***** size [int]
+                            ***** type [str]
+                            ***** charset [str]
+                            ***** language [str]
+                            ***** saved-copy-url [str]
                             ***** passages [list]
                                 ****** passage [str]
                                 ...
@@ -171,7 +176,7 @@ class Yandexml:
                 
             self.query = self._get_node(node_request, 'query')
             self.page = int(self._get_node(node_request, 'page', '0'))
-            self.maxpassages = int(self._get_node(node_request, 'maxpassages', '0'))
+            self.maxpassages = int(self._get_node(node_request, 'maxpassages', '0'))  
             self.grouped = node_request.find('groupings/groupby').get('attr') == 'd'
             self.groups_on_page = int(node_request.find('groupings/groupby').get('groups-on-page'))
             self.results_in_group = int(node_request.find('groupings/groupby').get('docs-in-group'))
@@ -184,13 +189,21 @@ class Yandexml:
             self.found_human = self._get_node(node_results, 'found-docs-human')
             
             for group in node_results.iter('group'):
-                dic_gr = {'name': group.find('categ').get('name'), 'count': int(self._get_node(group, 'doccount', '0')), 'docs': []}
+                dic_gr = {'name': group.find('categ').get('name') if not group.find('categ') is None else '', 
+                          'count': int(self._get_node(group, 'doccount', '0')), 'docs': []}
                 
                 for doc in group.iter('doc'):
-                    dic_gr['docs'].append({'url': self._get_node(doc, 'url'), 'domain': self._get_node(doc, 'domain'),
-                                          'title': self._get_node(doc, 'title'), 'modtime': self._get_node(doc, 'modtime'),
-                                          'passages': [p.text for p in doc.findall('passages/passage')],
-                                          'saved-copy-url': self._get_node(doc, 'saved-copy-url')})
+                    dic_gr['docs'].append({'url': self._get_node(doc, 'url'), 
+                                          'domain': self._get_node(doc, 'domain'),
+                                          'headline': self._get_node(doc, 'headline'), 
+                                          'title': self._get_node(doc, 'title'), 
+                                          'modified': dt.strptime(self._get_node(doc, 'modtime'), '%Y%m%dT%H%M%S') if doc.find('modtime') else None,
+                                          'passages': [p.text for p in doc.findall('passages/passage') if p.text],
+                                          'size': int(self._get_node(doc, 'size', '0')), 
+                                          'type': self._get_node(doc, 'mime-type'),
+                                          'charset': self._get_node(doc, 'charset'), 
+                                          'language': self._get_node(doc.find('properties'), 'lang'),                                          
+                                          'saved_copy': self._get_node(doc, 'saved-copy-url')})
                 self.groups.append(dic_gr)
             
             self._retry_cnt = 0
@@ -225,6 +238,40 @@ class Yandexml:
         except Exception as err:
             print(str(err), file=sys.stderr)
             return False
+        
+    def output_results(self, txtformat='json', out=sys.stdout):
+        """
+        """
+        f = open(out, 'w', encoding='utf-8') if isinstance(out, str) else out
+        try:
+            if not self.groups:
+                raise NoError
+                
+            if txtformat=='json':
+                data = {k: self.__dict__[k] for k in self.__dict__ if k in ('found', 'found_human', 'groups')}
+                json.dump(data, f, sort_keys=True, indent=4)
+                
+            elif txtformat=='xml':
+                f.write(self.raw_results)
+                
+            elif txtformat=='txt':
+                print('FOUND: {}\n{}'.format(self.found, self.found_human), file=f)
+                for group in self.groups:
+                    print('\n\n----------------\nDOMAIN "{}": {}'.format(group['name'], group['count']), file=f)
+                    for doc in group['docs']:
+                        print('\n\tURL: {}\n\tTITLE: {}\n\tHEADLINE: {}\n\tLANGUAGE: {}\n\tMODIFIED: {}\n\tPASSAGES: {}\n\tSIZE: {}\n\tTYPE: {}\n\tCHARSET: {}\n\tSAVED COPY: {}'.format(
+                                doc['url'], doc['title'], doc['headline'], doc['language'], doc['modified'],  
+                                '\n\t\t'.join(doc['passages']) if doc['passages'] else '',
+                                doc['size'], doc['type'], doc['charset'], doc['saved_copy']), file=f)
+                        
+            else:
+                print('WRONG FILE FORMAT!', file=f)
+                
+        except NoError:
+            pass
+        
+        finally:
+            if f != sys.stdout: f.close()        
         
     def parse_limits(self, result_xml):
         
@@ -268,7 +315,7 @@ class Yandexml:
         https://tech.yandex.ru/xml/doc/dg/concepts/limits-docpage/
         """
         try:
-            response = requests.get(self.limitsurl, headers=REQ_HEADERS, proxies=self.proxies, timeout=REQ_TIMEOUT)
+            response = requests.get(self.limitsurl, headers=REQ_HEADERS, proxies=self.proxy, timeout=REQ_TIMEOUT)
             return self.parse_limits(response.text)
             
         except Exception as err:
@@ -335,7 +382,7 @@ class Yandexml:
             # отправить результат расшифровки вместе с ключом капчи яндексу
             cap_query = 'https://yandex.{}/xcheckcaptcha?key={}&rep={}'.format(
                     'com' if self.mode == 'world' else 'ru', captcha_key, result)
-            resp = requests.get(cap_query, proxies=self.proxies, timeout=REQ_TIMEOUT, headers=self.search_headers)
+            resp = requests.get(cap_query, proxies=self.proxy, timeout=REQ_TIMEOUT, headers=self.search_headers)
             
             # если в ответе содержится куки "spravka" - сохраняем в надежном месте для будущих запросов
             if 'Set-Cookie' in resp.headers:
@@ -360,10 +407,10 @@ class Yandexml:
                 return self.parse_results(rtxt)
             
             # если ответ не содержит ничего из перечисленного и при этом сохранился текст запроса
-            if self.query:
+            if self._last_search_query:
                 # заново делаем запрос (в него уже будет передан правильный заголовок и куки если есть)
                 print('Капча распознана, направляем новый запрос')
-                return self.search(self.query)
+                return self.search(*self._last_search_query)
             
             # сюда попадаем, если и ответ невнятный, и запрос не сохранился
             print('Капча распознана, но нет исходного запроса')
@@ -383,11 +430,42 @@ class Yandexml:
             self._retry_cnt = 0
             return False
         
+    def yandex_logo(self, background='white', fullpage=False, title='', **styleparams):
+        """
+        Возвращает сформированный HTML элемент (div) или страницу с логотипом Яндекса и данными по найденным
+        результатам, как указано на https://tech.yandex.ru/xml/doc/dg/concepts/design-requirements-docpage/#design-requirements
+        * background [str] = цвет фона (стандартных 3: red, black, white) - в зависимости от него выбирается логотип и цвет шрифта
+        * fullpage [bool] = вернуть HTML полной страницы или только элемента (div)
+        * title [str] = заголовок страницы (если fullpage == True)
+        * styleparams [kwargs] = дополнительные параметры стиля логотипа (передаются в тег style={...}): 
+            ширина, высота, наличие рамки, цвет/размер шрифта, расположение контейнера и т.д.
+            При отсутствии берутся стандартные настройки стиля из глобальной DEFAULT_LOGO_STYLE,
+            при этом цвет шрифта подбирается исходя из параметра background.
+        """
+        def _get_logo(bg):
+            if bg == 'red': return 'assets/yandex-for-red-background.png'
+            if bg == 'black': return 'assets/yandex-for-black-background.png'
+            return 'assets/yandex-for-white-background.png' 
+        
+        def _dict2htm(d):
+            return str(d)[1:-2].replace(',', ';').replace("'", '')
+        
+        def _get_fontcolor(bg):
+            if bg == 'white': return 'black'
+            return 'white'
+        
+        return HTML_LOGO_TEMPLATE_FULL.format(title, background,
+                    _dict2htm(styleparams) if styleparams else '{}; color: {}'.format(_dict2htm(DEFAULT_LOGO_STYLE), _get_fontcolor(background)),
+                    _get_logo(background), self.found_human) if fullpage else \
+               HTML_LOGO_TEMPLATE_DIV.format(background,
+                _dict2htm(styleparams) if styleparams else '{}; color: {}'.format(_dict2htm(DEFAULT_LOGO_STYLE), _get_fontcolor(background)),
+                _get_logo(background), self.found_human)
+        
     def _get_sample_captcha(self):
         try:
             resp = requests.get('https://yandex.{}/search/xml?&query={}&user={}&key={}&showmecaptcha=yes'.format(
                     'com' if self.mode == 'world' else 'ru', SAMPLE_CAPTCHA_QUERY, self.user, self.apikey), 
-                    proxies=self.proxies, timeout=REQ_TIMEOUT, headers=self.search_headers)                    
+                    proxies=self.proxy, timeout=REQ_TIMEOUT, headers=self.search_headers)                    
             return resp.text
             
         except Exception as err:
@@ -413,7 +491,7 @@ class Yandexml:
         """
         for service in IPSERVICES:
             try:
-                return requests.get(service, proxies=self.proxies, timeout=REQ_TIMEOUT).text
+                return requests.get(service, proxies=self.proxy, timeout=REQ_TIMEOUT).text
             except:
                 pass
         return ''
