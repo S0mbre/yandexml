@@ -10,6 +10,29 @@ import webbrowser
 import sys
 import fire
 
+COLORED_OUTPUT = True              # colored console output using the Python colorama library
+
+if COLORED_OUTPUT:
+    try:
+        import colorama
+        colorama.init(autoreset=True)
+        COLOR_PROMPT = colorama.Fore.GREEN
+        COLOR_HELP = colorama.Fore.YELLOW
+        COLOR_ERR = colorama.Fore.RED
+        COLOR_STRESS = colorama.Fore.CYAN
+        COLOR_BRIGHT = colorama.Style.BRIGHT
+    except ImportError:
+        COLORED_OUTPUT = False
+        COLOR_PROMPT = ''
+        COLOR_HELP = ''
+        COLOR_ERR = ''
+        COLOR_STRESS = ''
+        COLOR_BRIGHT = ''
+
+COMMAND_PROMPT = COLOR_PROMPT + '\nCOMMAND? [w to quit] >'
+BYE_MSG = COLOR_STRESS + 'QUITTING APP...'
+WRONG_CMD_MSG = COLOR_ERR + 'Wrong command! Type "h" for help.'
+EMPTY_CMD_MSG = COLOR_ERR + 'Empty command!'
 ## ******************************************************************************** ## 
 
 class Yxml:
@@ -17,34 +40,50 @@ class Yxml:
     def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver=''):
         self.engine = Yandexml(user, apikey, mode, ip, proxy, captcha_solver if captcha_solver else Yxml.default_captcha_callback)
         self.commands = {'r': self.reset, 'q': self.query, 'l': self.limits_next, 'L': self.limits_all, 
-                'y': self.yandex_logo, 'v': self.view_params, 'w': None}
-        self.usage = 'USAGE:\t[{}] [ARGS]'.format('|'.join(sorted(self.commands.keys())))
-        self.usage2 = '\n\t'.join(['{}:{}'.format(fn, self.commands[fn].__doc__) for fn in self.commands if fn != 'w'])
+                'y': self.yandex_logo, 'v': self.view_params, 'h': self.showhelp, 'w': None}
+        self.usage = COLOR_HELP + COLOR_BRIGHT + '\nUSAGE:\t[{}] [ARGS]'.format('|'.join(sorted(self.commands.keys())))
+        self.usage2 = COLOR_HELP + '\n\t'.join(['{}:{}'.format(fn, self.commands[fn].__doc__) for fn in self.commands if fn != 'w'])
+        
+    def showhelp(self, detail=1):
+        """
+        Show CLI help.
+        
+        PARAMS:
+            - detail [int]: if == 1: show the "USAGE [...]" string; 
+                            if == 2: show comprehensive docs for each command / function
+        RETURNS:
+            None
+        """
+        print(self.usage)
+        print(COLOR_HELP + 'Enter "h 2" to show more detail.' if detail < 2 else self.usage2)
         
     def run(self):
         """
-        Todo:
+        Provides a continuously running commandline shell.
+        
+        The one-letter commands used are listed in the commands dict.
         """
         entered = ''
         while True:
             try:
-                print('\nENTER COMMAND:', end='\t')
+                print(COMMAND_PROMPT, end='\t')
                 entered = str(input())
                 if not entered:
-                    print('Empty command!')
+                    print(EMPTY_CMD_MSG)
                     continue
                 e = entered[0]
                 if e in self.commands:
                     if self.commands[e] is None: 
-                        print('QUITTING APP...')
+                        print(BYE_MSG)
                         break
                     cmds = entered.split(' ')
                     fire.Fire(self.commands[e], ' '.join(cmds[1:]) if len(cmds) > 1 else '-')
                 else:
-                    print('Wrong command!\n{}\n\t{}'.format(self.usage, self.usage2))
+                    print(WRONG_CMD_MSG)
+                    self.showhelp()
                     continue     
             except KeyboardInterrupt:
-                print('QUITTING APP...')
+                print(BYE_MSG)
                 break
             
             except Exception:
@@ -61,7 +100,7 @@ class Yxml:
         PARAMS:
             - detail [int]: how many properties to show (1 | 2 | 3, default=1)
         RETURNS:
-            - dict of properties
+            [dict] of properties
         """
         params = ['user', 'apikey', 'mode', 'ip']
         if detail > 1: 
@@ -80,7 +119,7 @@ class Yxml:
         PARAMS:
             - params: keyword args (param1=value1, param2=value2, ...) to set engine properties
         RETURNS:
-            - status string
+            Status string
         """
         self.engine.reset(params)
         if not self.engine.captcha_solver: 
@@ -89,27 +128,52 @@ class Yxml:
         
     def query(self, querystr='', grouped=True, txtformat='txt', outfile=None):
         """
-        Todo:
+        Search Yandex and output the search results.
+        
+        PARAMS:
+            - querystr [str]: the search query (as you would type into the Yandex searchbar)
+            - grouped [bool]: whether the search results will be grouped by domain name (default) or ungrouped
+            - txtformat [str]: one of [txt|json|xml]: the output format for the results
+                NOTE: 'txt' will use 'pretty' formatting with human-readable words inserted;
+                'json' will output the results as 'dictionary' (with pretty-printing, i.e. indentations);
+                'xml' will output the raw XML results from Yandex, including some values not retrieved
+                in the other formats
+            - outfile [None|str]: path to output file [str] or None to output to console (stdout)
+        RETURNS:
+            None
         """
         if self.engine.search(querystr, grouped):
             self.engine.output_results(txtformat, sys.stdout if outfile is None else outfile)
             
     def output(self, txtformat='txt', outfile=None):
         """
-        Todo:
+        Save previous search results to a file or console window.
+        
+        PARAMS:
+            See "query".
+        RETURNS:
+            None
         """
         self.engine.output_results(txtformat, sys.stdout if outfile is None else outfile) 
         
     def limits_next(self):
         """
-        Todo:
+        Get the request limit for next hour or current day.
+        
+        See https://tech.yandex.com/xml/doc/dg/concepts/limits-docpage/ for details.
+        RETURNS:
+            Formatted output [str] with daily limit.
         """
         lim = self.engine.next_limits        
         return 'Limit = {} for {}'.format(lim[1], str(lim[0])) if lim else ''
     
     def limits_all(self):
         """
-        Todo:
+        Get the request limits for current day by hours (if applicable) and for whole day.
+        
+        See https://tech.yandex.com/xml/doc/dg/concepts/limits-docpage/ for details.
+        RETURNS:
+            Formatted output [str] with daily (and hourly) limits.
         """
         if not self.engine.query_limits(): return ''
         out = ''
@@ -121,7 +185,19 @@ class Yxml:
     
     def yandex_logo(self, background='white', fullpage=False, title='', outfile=None, **styleparams):
         """
-        Todo:
+        Create HTML code (div or page) containing the Yandex logo and search results info
+        as stipulated at https://tech.yandex.com/xml/doc/dg/concepts/design-requirements-docpage/#design-requirements
+        PARAMS:
+            - background [str]: background color (3 standard: red, black, white); logo image and font color will be selected accordingly
+            - fullpage [bool]: whether to generate code for whole page or a single div section
+            - title [str]: HTML page title (if fullpage == True)
+            - outfile [None|str]: path to output file [str] or None to output to console (stdout)
+            - styleparams [kwargs]: additional CSS styles for HTML element (passed to style={...}), such as:
+                width, height, border, font, position etc.
+                If style is not assigned, the default DEFAULT_LOGO_STYLE template will be used,
+                and font color will be selected to contrast the background.
+        RETURNS:
+            Generated HTML code (if outfile == None) or status text (if outfile == full path).
         """
         logo = self.engine.yandex_logo(background, fullpage, title, **styleparams)
         if outfile is None: return logo
