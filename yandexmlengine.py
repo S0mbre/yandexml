@@ -9,6 +9,7 @@ import sys
 import requests
 import ipaddress
 import json
+import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime as dt
 from globalvars import *
@@ -48,12 +49,12 @@ class Yandexml:
     
     
     
-    def __init__(self, username, apikey, mode='world', ip=None, proxy=None, captcha_callback=None):                
-        self.reset(user=username, apikey=apikey, mode=mode, ip=ip, proxy=proxy, captcha_callback=captcha_callback)
+    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver=''):                
+        self.reset(user=user, apikey=apikey, mode=mode, ip=ip, proxy=proxy, captcha_solver=captcha_solver)
         
     def reset(self, **kwargs):
         if not kwargs: return
-        self.__dict__.update({k: kwargs[k] for k in kwargs if k in('user', 'apikey', 'proxy', 'captcha_callback', 'mode', 'ip')})
+        self.__dict__.update({k: kwargs[k] for k in kwargs if k in('user', 'apikey', 'proxy', 'mode', 'ip', 'captcha_solver')})
         
         if 'proxy' in self.__dict__:
             if isinstance(self.proxy, str):
@@ -239,7 +240,7 @@ class Yandexml:
             print(str(err), file=sys.stderr)
             return False
         
-    def output_results(self, txtformat='json', out=sys.stdout):
+    def output_results(self, txtformat='txt', out=sys.stdout):
         """
         """
         f = open(out, 'w', encoding='utf-8') if isinstance(out, str) else out
@@ -364,8 +365,8 @@ class Yandexml:
         """
         
         # если не задан обработчик капчи (внешняя фнукция)
-        if not self.captcha_callback:
-            raise YandexXMLError('Не задан обработчик капчи (captcha_callback)')
+        if not self.captcha_solver:
+            raise YandexXMLError('Не задан обработчик капчи (captcha_solver)')
         
         # если достигли макс. число попыток
         if retries > 0 and self._retry_cnt >= retries:
@@ -379,7 +380,7 @@ class Yandexml:
             #captcha_status = tree.find('./captcha-status').text         # статус (если повторная попытка = "failed")
             
             # передаем капчу на обработку в коллбак функцию
-            result = self.captcha_callback(captcha_url)
+            result = self._solve_captcha(captcha_url)
             # функция должна вернуть непустую строку, иначе ошибочка
             if not result: raise YandexXMLError('Ошибка распознания капчи', captcha_url)
             # отправить результат расшифровки вместе с ключом капчи яндексу
@@ -498,6 +499,26 @@ class Yandexml:
             except:
                 pass
         return ''
+    
+    def _solve_captcha(self, img_url):
+        if isinstance(self.captcha_solver, str):
+            # path to external py / exe
+            if self.captcha_solver.lower().endswith('.py'):
+                # python script
+                res = subprocess.run([sys.executable, self.captcha_solver, img_url], stdout=subprocess.PIPE, encoding='utf-8')
+                if not res.returncode: return str(res.stdout)
+                raise YandexXMLError(str(res.stderr), self.captcha_solver)
+            else:
+                # assume executable
+                res = subprocess.run([self.captcha_solver, img_url], stdout=subprocess.PIPE, encoding='utf-8')
+                if not res.returncode: return str(res.stdout)
+                raise YandexXMLError(str(res.stderr), self.captcha_solver)                     
+        
+        elif type(self.captcha_solver).__name__ == 'function':
+            # pointer to function / callback
+            return str(self.captcha_solver(img_url))
+            
+        raise YandexXMLError('Некорректный тип решателя капчи (captcha_solver)!', type(self.captcha_solver).__name__)
 
         
         

@@ -8,107 +8,129 @@ Created on Wed Jun  5 14:42:33 2019
 from yandexmlengine import Yandexml
 import webbrowser
 import sys
-import click
+import fire
 
 ## ******************************************************************************** ## 
-engine = None 
 
-def default_captcha_callback(captcha_url):
-    webbrowser.open_new_tab(captcha_url)
-    return str(input())
-
-@click.group()
-def cli():
-    pass 
-
-@cli.command(name='c')
-@click.argument('username')
-@click.argument('apikey')
-@click.option('--mode', '-m', default='world', type=click.Choice(['world', 'ru']), help='Search mode: [world|ru]', show_default=True)
-@click.option('--ip', '-i', default='', help='Host IP for search queries (empty=use current)', show_default=True)
-@click.option('--proxy', '-p', default='', help='HTTP(S) proxy settings (empty=use system)', show_default=True)
-@click.option('--captcha', '-c', default='', help='Path to captcha solver (python script or executable), empty=webbrowser + console input', show_default=True)
-def create(username, apikey, mode, ip, proxy, captcha):
-    global engine
-    proxy = {'http': proxy, 'https': proxy} if proxy else None
-    captcha = captcha if captcha else default_captcha_callback
-    engine = Yandexml(username, apikey, mode, ip, proxy, captcha)
+class Yxml:
     
-@cli.command(name='s')
-@click.option('--username', default='---')
-@click.option('--apikey', default='---')
-@click.option('--mode', type=click.Choice(['world', 'ru', '---']), default='---')
-@click.option('--ip', default='---')
-@click.option('--proxy', default='---')
-@click.option('--captcha', default='---')
-def setparam(username, apikey, mode, ip, proxy, captcha):
-    if not engine: 
-        click.echo('API engine not initialized. Please use the "c" command first.', file=sys.stderr)
-        return
-    d = {}
-    if username != '---': d['username'] = username
-    if apikey != '---': d['apikey'] = apikey
-    if mode != '---': d['mode'] = mode
-    if ip != '---': d['ip'] = ip
-    if proxy != '---': d['proxy'] = proxy
-    if captcha != '---': d['captcha_callback'] = captcha
-    engine.reset(**d)
-    
-@cli.command(name='q')
-@click.argument('querystr')
-@click.option('--group/--no-group', '-g/-n', default=True, help='Group results by domain name (otherwise flat list)', show_default=True)
-@click.option('--format', '-f', default='txt', type=click.Choice(['json', 'xml', 'txt']), help='Format results', show_default=True)
-@click.argument('file', type=click.Path())
-def query(querystr, grouped, txtformat, outfile):
-    if not engine: 
-        click.echo('API engine not initialized. Please use the "c" command first.', file=sys.stderr)
-        return
-    if not engine.search(querystr, grouped):
-        click.echo('** SEARCH ERROR ! **', file=sys.stderr)
-        return
-    engine.output_results(txtformat, outfile)
-    
-@cli.command(name='o')
-@click.option('--format', '-f', default='txt', type=click.Choice(['json', 'xml', 'txt']), help='Format results', show_default=True)
-@click.argument('file', type=click.Path())
-def output(txtformat, outfile):
-    if not engine: 
-        click.echo('API engine not initialized. Please use the "c" command first.', file=sys.stderr)
-        return
-    engine.output_results(txtformat, outfile)
-    
-@cli.command(name='l')
-def limits_next():
-    if not engine: 
-        click.echo('API engine not initialized. Please use the "c" command first.', file=sys.stderr)
-        return
-    lim = engine.next_limits
-    if lim: 
-        click.echo('Limit = {} for {}'.format(lim[1], str(lim[0])))
+    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver=''):
+        self.engine = Yandexml(user, apikey, mode, ip, proxy, captcha_solver if captcha_solver else Yxml.default_captcha_callback)
+        self.commands = {'r': self.reset, 'q': self.query, 'l': self.limits_next, 'L': self.limits_all, 
+                'y': self.yandex_logo, 'v': self.view_params, 'w': None}
+        self.usage = 'USAGE:\t[{}] [ARGS]'.format('|'.join(sorted(self.commands.keys())))
+        self.usage2 = '\n\t'.join(['{}:{}'.format(fn, self.commands[fn].__doc__) for fn in self.commands if fn != 'w'])
         
-@cli.command(name='L')
-def limits_all():
-    if not engine: 
-        click.echo('API engine not initialized. Please use the "c" command first.', file=sys.stderr)
-        return
-    if not engine.query_limits(): 
-        click.echo('** COULD NOT GET LIMITS ! **', file=sys.stderr)
-        return
-    if engine.hour_limits['day'] >= 0: 
-        click.echo('Daily limit = {} for {}'.format(engine.hour_limits['day']))
-    for lim in engine.hour_limits['hours']:
-        click.echo('Hourly limit from {} = {}'.format(str(lim[0]), lim[1]))
-      
+    def run(self):
+        """
+        Todo:
+        """
+        entered = ''
+        while True:
+            try:
+                print('\nENTER COMMAND:', end='\t')
+                entered = str(input())
+                if not entered:
+                    print('Empty command!')
+                    continue
+                e = entered[0]
+                if e in self.commands:
+                    if self.commands[e] is None: 
+                        print('QUITTING APP...')
+                        break
+                    cmds = entered.split(' ')
+                    fire.Fire(self.commands[e], ' '.join(cmds[1:]) if len(cmds) > 1 else '-')
+                else:
+                    print('Wrong command!\n{}\n\t{}'.format(self.usage, self.usage2))
+                    continue     
+            except KeyboardInterrupt:
+                print('QUITTING APP...')
+                break
+            
+            except Exception:
+                continue
         
-cli.add_command(create)
-cli.add_command(setparam)
-cli.add_command(query)
-cli.add_command(output)
-cli.add_command(limits_next)
-cli.add_command(limits_all)
-
+    def default_captcha_callback(captcha_url):
+        webbrowser.open_new_tab(captcha_url)
+        return str(input())
+    
+    def view_params(self, detail=1):
+        """
+        View engine properties
+        
+        PARAMS:
+            - detail [int]: how many properties to show (1 | 2 | 3, default=1)
+        RETURNS:
+            - dict of properties
+        """
+        params = ['user', 'apikey', 'mode', 'ip']
+        if detail > 1: 
+            params += ['proxy', 'search_cookies', 'search_headers', 'captcha_solver', 
+                       'query', 'page', 'maxpassages', 'grouped', 'groups_on_page', 'results_in_group', 
+                       'found', 'found_human', 'hour_limits']
+        if detail > 2: 
+            params += ['_retry_cnt', 'baseurl', 'limitsurl', '_last_search_query', 'raw_results']
+            
+        return {k: self.engine.__dict__[k] for k in self.engine.__dict__ if k in params}
+        
+    def reset(self, **params):
+        """
+        Reset engine properties
+        
+        PARAMS:
+            - params: keyword args (param1=value1, param2=value2, ...) to set engine properties
+        RETURNS:
+            - status string
+        """
+        self.engine.reset(params)
+        if not self.engine.captcha_solver: 
+            self.engine.captcha_solver = Yxml.default_captcha_callback
+        return 'Parameters have been reset'
+        
+    def query(self, querystr='', grouped=True, txtformat='txt', outfile=None):
+        """
+        Todo:
+        """
+        if self.engine.search(querystr, grouped):
+            self.engine.output_results(txtformat, sys.stdout if outfile is None else outfile)
+            
+    def output(self, txtformat='txt', outfile=None):
+        """
+        Todo:
+        """
+        self.engine.output_results(txtformat, sys.stdout if outfile is None else outfile) 
+        
+    def limits_next(self):
+        """
+        Todo:
+        """
+        lim = self.engine.next_limits        
+        return 'Limit = {} for {}'.format(lim[1], str(lim[0])) if lim else ''
+    
+    def limits_all(self):
+        """
+        Todo:
+        """
+        if not self.engine.query_limits(): return ''
+        out = ''
+        if self.engine.hour_limits['day'] >= 0:
+            out += 'Daily limit = {}'.format(self.engine.hour_limits['day'])
+        for lim in self.engine.hour_limits['hours']:
+            out += '\nHourly limit from {} = {}'.format(str(lim[0]), lim[1])
+        return out
+    
+    def yandex_logo(self, background='white', fullpage=False, title='', outfile=None, **styleparams):
+        """
+        Todo:
+        """
+        logo = self.engine.yandex_logo(background, fullpage, title, **styleparams)
+        if outfile is None: return logo
+        with open(outfile, 'w') as f:
+            f.write(logo)
+        return 'Yandex logo saved to: {}'.format(outfile)
+    
 def main():    
-    cli()
+    fire.Fire(Yxml)
 
 ## ******************************************************************************** ##    
        
