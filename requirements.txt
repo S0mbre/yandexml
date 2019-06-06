@@ -1,2 +1,2 @@
 requests>=2.21.0
-click>=7.0
+fire>=0.1.3
