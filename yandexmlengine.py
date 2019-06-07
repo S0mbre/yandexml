@@ -5,7 +5,7 @@ Created on Mon Jun  3 13:03:48 2019
 @author: iskander.shafikov
 """
 
-import sys
+import sys, os
 import requests
 import ipaddress
 import json
@@ -13,6 +13,20 @@ import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime as dt
 from globalvars import *
+
+
+
+
+
+def print_err(what, file=sys.stderr):
+    print(COLOR_ERR + what, file=file)
+
+def print_dbg(what, file=sys.stdout):
+    if DEBUGGING:
+        print(COLOR_STRESS + what, file=file)
+        
+def print_help(what, file=sys.stdout):
+    print(COLOR_HELP + what, file=file)
 
 def clean_spaces(s):
     ss = s.replace('\r\n', ' ').replace('\n', ' ').replace('\t', ' ')
@@ -49,7 +63,7 @@ class Yandexml:
     
     
     
-    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver=''):                
+    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver=''):  
         self.reset(user=user, apikey=apikey, mode=mode, ip=ip, proxy=proxy, captcha_solver=captcha_solver)
         
     def reset(self, **kwargs):
@@ -65,9 +79,7 @@ class Yandexml:
             self.proxy = None
         
         if 'mode' in self.__dict__:
-            if self.mode not in ('world', 'ru'):
-                print('Параметр mode должен быть либо "world" либо "ru"!', file=sys.stderr)
-                raise ValueError
+            if self.mode not in ('world', 'ru'): self.mode = 'world'
         else:
             self.mode = 'world'
         
@@ -104,9 +116,6 @@ class Yandexml:
             query_body = XML_QUERY.format(query, '', 'flat', 1)
         
         try:
-            if self.search_cookies and 'Set-Cookie' in self.search_cookies:
-                self.search_headers['Set-Cookie'] = self.search_cookies['Set-Cookie']
-            
             response = requests.post(self.baseurl, data=bytes(query_body, 'utf-8'), 
                                      headers=self.search_headers, proxies=self.proxy, timeout=REQ_TIMEOUT,
                                      cookies=self.search_cookies)
@@ -119,7 +128,7 @@ class Yandexml:
             return self.parse_results(self.raw_results)
             
         except Exception as err:
-            print(str(err), file=sys.stderr)
+            print_err(str(err))
             return False
         
     def parse_results(self, result_xml):        
@@ -198,7 +207,7 @@ class Yandexml:
                                           'domain': self._get_node(doc, 'domain'),
                                           'headline': self._get_node(doc, 'headline'), 
                                           'title': self._get_node(doc, 'title'), 
-                                          'modified': dt.strptime(self._get_node(doc, 'modtime'), '%Y%m%dT%H%M%S') if doc.find('modtime') else None,
+                                          'modified': dt.strptime(self._get_node(doc, 'modtime'), '%Y%m%dT%H%M%S') if self._get_node(doc, 'modtime') else None,
                                           'passages': [p.text for p in doc.findall('passages/passage') if p.text],
                                           'size': int(self._get_node(doc, 'size', '0')), 
                                           'type': self._get_node(doc, 'mime-type'),
@@ -211,20 +220,21 @@ class Yandexml:
             return True
             
         except ET.ParseError as err:
-            print(str(err) + '\nВозможно, результат возвращен не в формате XML.', file=sys.stderr)
+            print_err(str(err) + '\nВозможно, результат возвращен не в формате XML.')
             return False
         
         except YandexXMLRequestError as err:
-            print('{}\nПОЛНЫЙ ТЕКСТ ОТВЕТА СЕРВЕРА:\n{}'.format(str(err), err.context), file=sys.stderr)
+            print_err('{}'.format(str(err)))
+            print_dbg('ПОЛНЫЙ ТЕКСТ ОТВЕТА СЕРВЕРА:\n{}'.format(err.context))
             
             # Коды ошибок: https://tech.yandex.ru/xml/doc/dg/reference/error-codes-docpage/
             if err.errorcode == 32: 
                 # кончились лимиты запросов
-                print('\nОбратитель к свойству "next_limits" для определения количества оставшихся запросов на ближайши{}.'.format(
+                print_help('\nОбратитель к свойству "next_limits" для определения количества оставшихся запросов на ближайши{}.'.format(
                         'й час' if self.mode == 'ru' else 'е сутки'))
                 
             elif err.errorcode == 48:
-                print('\nПроверьте параметр "mode" (должен соответствовать типу поиска для вашего зарегистрированного IP)')
+                print_help('\nПроверьте параметр "mode" (должен соответствовать типу поиска для вашего зарегистрированного IP)')
                 
             elif err.errorcode == 100:
                 # защита от робота, запрос капча                
@@ -233,11 +243,12 @@ class Yandexml:
             return False
         
         except YandexXMLError as err:
-            print('{}\nПОЛНЫЙ ТЕКСТ ОТВЕТА СЕРВЕРА:\n{}'.format(str(err), err.context), file=sys.stderr)
+            print_err('{}'.format(str(err)))
+            print_dbg('ПОЛНЫЙ ТЕКСТ ОТВЕТА СЕРВЕРА:\n{}'.format(err.context))
             return False
         
         except Exception as err:
-            print(str(err), file=sys.stderr)
+            print_err(str(err))
             return False
         
     def output_results(self, txtformat='txt', out=sys.stdout):
@@ -250,7 +261,7 @@ class Yandexml:
                 
             if txtformat=='json':
                 data = {k: self.__dict__[k] for k in self.__dict__ if k in ('found', 'found_human', 'groups')}
-                json.dump(data, f, sort_keys=True, indent=4)
+                json.dump(data, f, ensure_ascii=False, indent=4, default=lambda o: str(o) if isinstance(o, dt) else TypeError())
                 
             elif txtformat=='xml':
                 f.write(self.raw_results)
@@ -263,16 +274,16 @@ class Yandexml:
                         print('\n\tURL: {}\n\tTITLE: {}\n\tHEADLINE: {}\n\tLANGUAGE: {}\n\tMODIFIED: {}\n\tPASSAGES: {}\n\tSIZE: {}\n\tTYPE: {}\n\tCHARSET: {}\n\tSAVED COPY: {}'.format(
                                 doc['url'], doc['title'], doc['headline'], doc['language'], doc['modified'],  
                                 '\n\t\t'.join(doc['passages']) if doc['passages'] else '',
-                                doc['size'], doc['type'], doc['charset'], doc['saved_copy']), file=f)
+                                doc['size'], doc['type'], doc['charset'], doc['saved_copy']), file=f)   
                         
             else:
-                print('WRONG FILE FORMAT!', file=f)
+                print_err('WRONG FILE FORMAT!')
                 
         except NoError:
             pass
         
         except Exception as err:
-            print(str(err), file=out)
+            print_err(str(err))
         
         finally:
             if f != sys.stdout: f.close()        
@@ -306,11 +317,11 @@ class Yandexml:
             return True
             
         except ET.ParseError as err:
-            print(str(err) + '\nВозможно, результат возвращен не в формате XML.', file=sys.stderr)
+            print(str(err) + '\nВозможно, результат возвращен не в формате XML.')
             return False
         
         except Exception as err:
-            print(str(err), file=sys.stderr)
+            print_err(str(err))
             return False
         
     def query_limits(self):
@@ -323,7 +334,7 @@ class Yandexml:
             return self.parse_limits(response.text)
             
         except Exception as err:
-            print(str(err), file=sys.stderr)
+            print_err(str(err))
             return False
         
     @property
@@ -334,7 +345,7 @@ class Yandexml:
         if (self.mode == 'world' and self.hour_limits['day'] == -1) or (self.mode == 'ru' and not self.hour_limits['hours']):
             # надо обновить инфо по лимитам
             if not self.query_limits():
-                print('Невозможно обновить данные по лимитам запросов.', file=sys.stderr)
+                print_err('Невозможно обновить данные по лимитам запросов.')
                 return None
         if self.mode != 'world':            
             this_time = dt.now()
@@ -343,7 +354,7 @@ class Yandexml:
                     return tup
         return (dt.today().date(), self.hour_limits['day'])
     
-    def process_captcha(self, result_xml, retries=-1):
+    def process_captcha(self, result_xml, retries=-1, retrysearch=True):
         """
         При получении от Яндекса запроса на ввод капчи, процессирует ее и 
         заново вводит исходный запрос (передавая необходимые куки) и обрабатывает
@@ -360,6 +371,8 @@ class Yandexml:
                 <captcha-status>Статус</captcha-status>
                 </yandexsearch>
             * retries - количество попыток ввода капчи (отрицательное значение = бесконечно)
+            * retrysearch - после распознания капчи вернуть результаты исходного запроса 
+            (если False: вернуть только результат распознания капчи)
         Возвращает True в случае удачи и False в случае неудачи.
         См. описание https://tech.yandex.ru/xml/doc/dg/concepts/captcha-docpage/
         """
@@ -390,47 +403,51 @@ class Yandexml:
             
             # если в ответе содержится куки "spravka" - сохраняем в надежном месте для будущих запросов
             if 'Set-Cookie' in resp.headers:
-                self.search_cookies = resp.cookies
-                self.search_cookies['Set-Cookie'] = resp.headers['Set-Cookie'] 
+                self.search_headers['Set-Cookie'] = resp.headers['Set-Cookie']
+                self.search_cookies = resp.cookies # todo: изменить имя домена в куки! см. пример в docs
+
             # получаем текст ответа (XML)    
             rtxt = resp.text
             
             # если это новая капча (предыдущая была неверно распознана)
             if '<error code="100">' in rtxt and '<captcha-status>' in rtxt:
                 rem_retries = '' if retries < 0 else ', осталось {} попыток'.format(retries - self._retry_cnt - 1)
-                print('Неверно отгадана капча{}'.format(rem_retries), file=sys.stderr)
+                print_err('Неверно отгадана капча{}'.format(rem_retries))
                 # увеличиваем счетчик попыток
                 if retries > 0: self._retry_cnt += 1
                 # рекурсивно вызываем себя с новым XML
-                return self.process_captcha(rtxt, retries)
+                return self.process_captcha(rtxt, retries, retrysearch)
+            
+            if not retrysearch: return True
             
             # если это результаты запроса
             if '<results>' in rtxt and '<found-docs' in rtxt:
                 # вызываем parse_results() для обработки результатов
-                print('Капча распознана, получены результаты запроса')
+                print_dbg('Капча распознана, получены результаты запроса')
                 return self.parse_results(rtxt)
             
             # если ответ не содержит ничего из перечисленного и при этом сохранился текст запроса
             if self._last_search_query:
                 # заново делаем запрос (в него уже будет передан правильный заголовок и куки если есть)
-                print('Капча распознана, направляем новый запрос')
+                print_dbg('Капча распознана, направляем новый запрос')
                 return self.search(*self._last_search_query)
             
             # сюда попадаем, если и ответ невнятный, и запрос не сохранился
-            print('Капча распознана, но нет исходного запроса')
+            print_dbg('Капча распознана, но нет исходного запроса')
             raise YandexXMLError('Невозможно восстановить запрос после ввода капчи', rtxt)
             
         except ET.ParseError as err:
-            print(str(err) + '\nВозможно, результат возвращен не в формате XML.', file=sys.stderr)
+            print(str(err) + '\nВозможно, результат возвращен не в формате XML.')
             self._retry_cnt = 0
             return False
         
         except YandexXMLError as err:
-            print('{}:\n{}'.format(str(err), err.context), file=sys.stderr)
+            print_err('{}{}'.format(str(err), ':\n{}'.format(err.context) if err.context else ''))
+            self._retry_cnt = 0
             return False
         
         except Exception as err:
-            print(str(err), file=sys.stderr)
+            print_err(str(err))
             self._retry_cnt = 0
             return False
         
@@ -464,16 +481,23 @@ class Yandexml:
                HTML_LOGO_TEMPLATE_DIV.format(background,
                 _dict2htm(styleparams) if styleparams else '{}; color: {}'.format(_dict2htm(DEFAULT_LOGO_STYLE), _get_fontcolor(background)),
                 _get_logo(background), self.found_human)
+               
+    def solve_sample_captcha(self, retries=3):
+        """
+        """
+        if self.process_captcha(self._get_sample_captcha(), retries, False):
+            print('КАПЧА РАСПОЗНАНА!')        
         
     def _get_sample_captcha(self):
         try:
             resp = requests.get('https://yandex.{}/search/xml?&query={}&user={}&key={}&showmecaptcha=yes'.format(
                     'com' if self.mode == 'world' else 'ru', SAMPLE_CAPTCHA_QUERY, self.user, self.apikey), 
-                    proxies=self.proxy, timeout=REQ_TIMEOUT, headers=self.search_headers)                    
+                    proxies=self.proxy, timeout=REQ_TIMEOUT, headers=self.search_headers) 
+            print_dbg(resp.text)                   
             return resp.text
             
         except Exception as err:
-            print(str(err), file=sys.stderr)
+            print_err(str(err))
             return False
         
         
@@ -501,22 +525,22 @@ class Yandexml:
         return ''
     
     def _solve_captcha(self, img_url):
-        if isinstance(self.captcha_solver, str):
-            # path to external py / exe
-            if self.captcha_solver.lower().endswith('.py'):
-                # python script
-                res = subprocess.run([sys.executable, self.captcha_solver, img_url], stdout=subprocess.PIPE, encoding='utf-8')
-                if not res.returncode: return str(res.stdout)
-                raise YandexXMLError(str(res.stderr), self.captcha_solver)
-            else:
-                # assume executable
-                res = subprocess.run([self.captcha_solver, img_url], stdout=subprocess.PIPE, encoding='utf-8')
-                if not res.returncode: return str(res.stdout)
-                raise YandexXMLError(str(res.stderr), self.captcha_solver)                     
-        
-        elif type(self.captcha_solver).__name__ == 'function':
+        """
+        """
+        if callable(self.captcha_solver):
             # pointer to function / callback
             return str(self.captcha_solver(img_url))
+        
+        if isinstance(self.captcha_solver, str):
+            # path to external py / exe
+            if os.path.isfile(self.captcha_solver):
+                params = [self.captcha_solver, img_url]
+                if self.captcha_solver.lower().endswith('.py'):
+                    params.insert(0, sys.executable)            
+                res = subprocess.run(params, stdout=subprocess.PIPE, encoding='utf-8')
+                if not res.returncode: return str(res.stdout)
+                raise YandexXMLError(str(res.stderr), self.captcha_solver)
+            raise NotImplementedError('captcha_solver должна быть путем к файлу *.exe или *.py')               
             
         raise YandexXMLError('Некорректный тип решателя капчи (captcha_solver)!', type(self.captcha_solver).__name__)
 

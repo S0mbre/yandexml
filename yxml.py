@@ -5,45 +5,37 @@ Created on Wed Jun  5 14:42:33 2019
 @author: iskander.shafikov
 """
 
-from yandexmlengine import Yandexml
 import webbrowser
 import sys
 import fire
-
-COLORED_OUTPUT = True              # colored console output using the Python colorama library
-
-if COLORED_OUTPUT:
-    try:
-        import colorama
-        colorama.init(autoreset=True)
-        COLOR_PROMPT = colorama.Fore.GREEN
-        COLOR_HELP = colorama.Fore.YELLOW
-        COLOR_ERR = colorama.Fore.RED
-        COLOR_STRESS = colorama.Fore.CYAN
-        COLOR_BRIGHT = colorama.Style.BRIGHT
-    except ImportError:
-        COLORED_OUTPUT = False
-        COLOR_PROMPT = ''
-        COLOR_HELP = ''
-        COLOR_ERR = ''
-        COLOR_STRESS = ''
-        COLOR_BRIGHT = ''
+from yandexmlengine import Yandexml
+from globalvars import *
 
 COMMAND_PROMPT = COLOR_PROMPT + '\nCOMMAND? [w to quit] >'
+CAPTCHA_PROMPT = COLOR_PROMPT + '\tEnter captcha text >'
 BYE_MSG = COLOR_STRESS + 'QUITTING APP...'
 WRONG_CMD_MSG = COLOR_ERR + 'Wrong command! Type "h" for help.'
 EMPTY_CMD_MSG = COLOR_ERR + 'Empty command!'
+
 ## ******************************************************************************** ## 
 
+def print_splash():
+    with open('assets/splash', 'r') as f:
+        print(COLOR_STRESS + f.read())
+        
+## ******************************************************************************** ## 
 class Yxml:
     
-    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver=''):
+    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver='', debug=True):
+        global DEBUGGING
+        DEBUGGING = debug
         self.engine = Yandexml(user, apikey, mode, ip, proxy, captcha_solver if captcha_solver else Yxml.default_captcha_callback)
         self.commands = {'r': self.reset, 'q': self.query, 'l': self.limits_next, 'L': self.limits_all, 
-                'y': self.yandex_logo, 'v': self.view_params, 'h': self.showhelp, 'w': None}
-        self.usage = COLOR_HELP + COLOR_BRIGHT + '\nUSAGE:\t[{}] [ARGS]'.format('|'.join(sorted(self.commands.keys())))
-        self.usage2 = COLOR_HELP + '\n\t'.join(['{}:{}'.format(fn, self.commands[fn].__doc__) for fn in self.commands if fn != 'w'])
+                'y': self.yandex_logo, 'v': self.view_params, 'h': self.showhelp, 'c': self.sample_captcha, 'w': None}
+        self.usage = COLOR_HELP + COLOR_BRIGHT + '\nUSAGE:\t[{}] [value1] [value2] [--param3=value3] [--param4=value4]'.format('|'.join(sorted(self.commands.keys())))
+        self.usage2 = COLOR_HELP + '\t' + '\n\t'.join(['{}:{}'.format(fn, self.commands[fn].__doc__) for fn in self.commands if fn != 'w'])
         
+    
     def showhelp(self, detail=1):
         """
         Show CLI help.
@@ -63,6 +55,7 @@ class Yxml:
         
         The one-letter commands used are listed in the commands dict.
         """
+        print_splash()
         entered = ''
         while True:
             try:
@@ -91,6 +84,7 @@ class Yxml:
         
     def default_captcha_callback(captcha_url):
         webbrowser.open_new_tab(captcha_url)
+        print(CAPTCHA_PROMPT, end='\t')
         return str(input())
     
     def view_params(self, detail=1):
@@ -121,7 +115,8 @@ class Yxml:
         RETURNS:
             Status string
         """
-        self.engine.reset(params)
+        if not params: return
+        self.engine.reset(**params)
         if not self.engine.captcha_solver: 
             self.engine.captcha_solver = Yxml.default_captcha_callback
         return 'Parameters have been reset'
@@ -204,6 +199,17 @@ class Yxml:
         with open(outfile, 'w') as f:
             f.write(logo)
         return 'Yandex logo saved to: {}'.format(outfile)
+    
+    def sample_captcha(self, retries=3):
+        """
+        Retrieves a sample captcha from Yandex XML and attempts to solve it using the
+        captcha_solver parameter passed to the engine.
+        PARAMS:
+            - retries [int]: max number of attempts before failure
+        RETURNS:
+            Status text on success (otherwise any error messages).
+        """
+        return self.engine.solve_sample_captcha(retries)
     
 def main():    
     fire.Fire(Yxml)

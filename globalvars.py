@@ -5,6 +5,29 @@ Created on Wed Jun  5 14:39:19 2019
 @author: iskander.shafikov
 """
 
+# debug messages
+DEBUGGING = True
+
+# for colorama colored console output
+COLORED_OUTPUT = True           # will work only if colorama is installed; set to False to switch off colored output
+COLOR_PROMPT = ''
+COLOR_HELP = ''
+COLOR_ERR = ''
+COLOR_STRESS = ''
+COLOR_BRIGHT = ''
+
+if COLORED_OUTPUT:
+    try:
+        import colorama
+        colorama.init(autoreset=True)
+        COLOR_PROMPT = colorama.Fore.GREEN
+        COLOR_HELP = colorama.Fore.YELLOW
+        COLOR_ERR = colorama.Fore.RED
+        COLOR_STRESS = colorama.Fore.CYAN
+        COLOR_BRIGHT = colorama.Style.BRIGHT
+    except ImportError:
+        COLORED_OUTPUT = False
+
 REQ_TIMEOUT = 5                 # ожидание соединения и ответа (сек.) None = вечно
 REQ_HEADERS = {'Content-Type': 'text/xhtml+xml; charset=UTF-8', 
                'Accept': 'application/xhtml+xml,application/xml', 
