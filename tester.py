@@ -1,8 +1,18 @@
 # -*- coding: utf-8 -*-
+# Copyright: (c) 2018, Iskander Shafikov <s00mbre@gmail.com>
+# GNU General Public License v3.0+ (see LICENSE.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 """
-Created on Mon Jun  3 14:45:34 2019
+This file is part of the Pynxml project hosted at https://github.com/S0mbre/yandexml.
 
-@author: iskander.shafikov
+This module provides a testing-ground for the Yandex API engine. 
+Inside its main() function, a Yandexml object is initialized and then used by a number of
+nested functions to do various stuff. 
+
+Use this module like this:
+python tester.py "your-username" "your-apikey"
+
+For the 'ip' argument, your current IP will be guessed by the engine. If you'd like to change this and other
+arguments, just use the object's reset() method at any point after initialization.
 """
 
 import sys
@@ -13,6 +23,7 @@ import webbrowser
 
 def captcha_callback(captcha_url):
     webbrowser.open_new_tab(captcha_url)
+    print('\tEnter captcha text (see your browser) >', end='\t')
     return str(input())
 
 def main():
@@ -25,7 +36,7 @@ def main():
     mode = 'world'
     query = "Let me not to the marriage of true minds admit impediments"
     
-    yxml = Yandexml(user, api, mode, captcha_callback=captcha_callback)
+    yxml = Yandexml(user, api, mode, captcha_solver=captcha_callback)
     
     def run1():
         yxml.process_captcha(yxml._get_sample_captcha(), 5)

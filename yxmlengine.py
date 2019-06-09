@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+# Copyright: (c) 2018, Iskander Shafikov <s00mbre@gmail.com>
+# GNU General Public License v3.0+ (see LICENSE.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 """
-Created on Mon Jun  3 13:03:48 2019
+This file is part of the Pynxml project hosted at https://github.com/S0mbre/yandexml.
 
-@author: iskander.shafikov
+This module implements the main engine - the Yandexml class which does all the work related to
+Yandex API search queries. See 'tester.py' and 'yxml.py' for usage examples.
 """
 
 import sys, os

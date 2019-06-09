@@ -1,18 +1,25 @@
 # -*- coding: utf-8 -*-
+# Copyright: (c) 2018, Iskander Shafikov <s00mbre@gmail.com>
+# GNU General Public License v3.0+ (see LICENSE.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 """
-Created on Wed Jun  5 14:42:33 2019
+This file is part of the Pynxml project hosted at https://github.com/S0mbre/yandexml.
 
-@author: iskander.shafikov
+This module provides a command-line interface (CLI) for the Yandex XML engine (Yandexml).
+
+See README for a primer on the available commands. Alternatively, run it with: 
+	python yxml.py --username <username> --apikey apikey run
+and then see the help like so:
+	h 2
 """
 
 import webbrowser
 import sys
 import fire
-from yandexmlengine import Yandexml
+from yxmlengine import Yandexml
 from globalvars import *
 
 COMMAND_PROMPT = COLOR_PROMPT + '\nCOMMAND? [w to quit] >'
-CAPTCHA_PROMPT = COLOR_PROMPT + '\tEnter captcha text >'
+CAPTCHA_PROMPT = COLOR_PROMPT + '\tEnter captcha text (see your browser) >'
 BYE_MSG = COLOR_STRESS + 'QUITTING APP...'
 WRONG_CMD_MSG = COLOR_ERR + 'Wrong command! Type "h" for help.'
 EMPTY_CMD_MSG = COLOR_ERR + 'Empty command!'
@@ -24,14 +31,13 @@ def print_splash():
         print(COLOR_STRESS + f.read())
         
 ## ******************************************************************************** ## 
-class Yxml:
+class Pyndxml:
     
-    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver='', debug=True):
-        global DEBUGGING
-        DEBUGGING = debug
-        self.engine = Yandexml(user, apikey, mode, ip, proxy, captcha_solver if captcha_solver else Yxml.default_captcha_callback)
+    def __init__(self, user, apikey, mode='world', ip='', proxy='', captcha_solver=''):
+        self.engine = Yandexml(user, apikey, mode, ip, proxy, captcha_solver if captcha_solver else Pyndxml.default_captcha_callback)
         self.commands = {'r': self.reset, 'q': self.query, 'l': self.limits_next, 'L': self.limits_all, 
-                'y': self.yandex_logo, 'v': self.view_params, 'h': self.showhelp, 'c': self.sample_captcha, 'w': None}
+                'y': self.yandex_logo, 'v': self.view_params, 'h': self.showhelp, 'c': self.sample_captcha, 
+                'o': self.output, 'w': None}
         self.usage = COLOR_HELP + COLOR_BRIGHT + '\nUSAGE:\t[{}] [value1] [value2] [--param3=value3] [--param4=value4]'.format('|'.join(sorted(self.commands.keys())))
         self.usage2 = COLOR_HELP + '\t' + '\n\t'.join(['{}:{}'.format(fn, self.commands[fn].__doc__) for fn in self.commands if fn != 'w'])
         
@@ -118,7 +124,7 @@ class Yxml:
         if not params: return
         self.engine.reset(**params)
         if not self.engine.captcha_solver: 
-            self.engine.captcha_solver = Yxml.default_captcha_callback
+            self.engine.captcha_solver = Pyndxml.default_captcha_callback
         return 'Parameters have been reset'
         
     def query(self, querystr='', grouped=True, txtformat='txt', outfile=None):
@@ -212,7 +218,7 @@ class Yxml:
         return self.engine.solve_sample_captcha(retries)
     
 def main():    
-    fire.Fire(Yxml)
+    fire.Fire(Pyndxml)
 
 ## ******************************************************************************** ##    
        

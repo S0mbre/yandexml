@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+# Copyright: (c) 2018, Iskander Shafikov <s00mbre@gmail.com>
+# GNU General Public License v3.0+ (see LICENSE.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 """
-Created on Wed Jun  5 14:39:19 2019
+This file is part of the Pynxml project hosted at https://github.com/S0mbre/yandexml.
 
-@author: iskander.shafikov
+This module contains the global variables used in any other modules.
 """
 
 # debug messages

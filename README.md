@@ -5,71 +5,54 @@
 * class-based Yandexml engine for a given Yandex account (username), API key and host IP
 * all current Yandex XML API constraints honored in code (search query length etc.)
 * request available daily / hourly limits
-* return search results in Python native objects (dict, list)
+* return search results in Python native objects (dict, list), as well as JSON and formatted text
+* output results to file
 * full Unicode support
 * handle Yandex captchas when robot protection activates on the server side
 * automatic host IP lookup (with several whats-my-ip online services)
 * use requests package for HTTP communication
+* easy CLI or use engine manually in Python
 * Python 3x compatible (2x not supported so far... and hardly will be)
 
 ## Installation
 * check you've got Python 3.7 or later
-* `pip install -r requirements.txt` (will install/upgrade the [requests](https://2.python-requests.org/en/master/) package)
+* `pip install -r requirements.txt` (will install/upgrade [requests](https://2.python-requests.org/en/master/) and [fire](https://github.com/google/python-fire))
 
 ## Usage
 
 **1. Command-line interface (CLI)**
 
-```
-yxml.py <username> <apikey> [<mode>:ru|world (default "world")] [<ip> (default: current external ip)]
-```
+`python yxml.py --username <username> --apikey <apikey> run`
 
+* (re)set engine parameters, e.g. switch mode to "ru" and ip to 127.0.0.1:
+`r --mode=ru ip=127.0.0.1`
+* view current engine parameters:
+`v` or `v 2` or `v 3` (output more detail)
 * search (output results to console):
 `q "SEARCH QUERY"`
 * search and save results to file:
-`q "SEARCH QUERY" -o:[xml|json|txt|csv] > "filename.xml"`
-* search with external captcha solver:
-`q "SEARCH QUERY" -c:"path-to-solver.[py|exe]"`
+`q "SEARCH QUERY" --txtformat=[xml|json|txt] --outfile="filename[.xml]"`
+* search without grouping by domain:
+`q "SEARCH QUERY" --grouped=False`
+* output previous search results to file:
+`o --txtformat=json --outfile="filename.json"`
 * get limits for next hour / day:
 `l`
 * get all limits:
 `L`
-* create logo:
-`NOT IMPLEMENTED`
-* options for all commands:
-	* `-vv`: verbose (print errors, debug info etc) -- default
-	* `-v`: print only critical errors
-	* `-q`: quiet (print nothing but results)
-		
+* create Yandex logo:
+`y --background==[red|white|black|any...] --fullpage=[True|False] --title='Logo' --outfile=[None|"myfile.html"]`
+* logo with custom CSS styles:
+`y --fullpage=True --outfile="myfile.html" --width="100px" --font-size="12pt" --font-family="Arial"`
+* solve sample captcha (download sample using Yandex XML API, use passed `captcha_solver` to solve):
+`c --retries=[1|2|...]`
+* show help (usage string):
+`h`
+* show detailed help:
+`h 2`
+* quit CLI:
+`w`
+
 **2. In Python code**
 
-* create Yandexml object:
-    ```python
-    yxml = Yandexml(user, username, apikey, searchmode='world', hostip=None, proxies=None, captcha_callback=None)
-    ```
-    * username = your Yandex account username (as for Yandex mail but without "@yandex.ru|com")
-    * apikey = dedicated API key given by Yandex when your register your app at https://xml.yandex.com/settings/
-    * searchmode = either of "world" to search worldwide (default) or "ru" to search in Russian web only (see Restrictions and Requirements for each mode at https://tech.yandex.com/xml/doc/dg/concepts/restrictions-docpage/)
-    
-	**NOTE:** Turkish search (available on Yandex XML) is not currently supported.
-    * hostip = IP address used to make search queries (provided once during registration at https://xml.yandex.com/settings/)
-    
-	**NOTE:** if passed `None`, Yandexml will use your current external IP address determined via online 'whoami' services
-    * proxies = dictionaty of HTTP/S proxy servers passed to the requests engine (e.g. `{'http': 'http://my-proxy:port', 'https': 'http://my-proxy:port'}`)
-    
-	**NOTE:** on most occasions, pass `None` (default) to make requests use your system proxy settings
-    * captcha_callback = pointer to external function to handle / solve Yandex captcha images.
-    The function must take the captcha URL as its sole argument and return the solved string.
-    
-	**NOTE:** if callback is not set (=`None`), Yandexml will return error when faced with captcha protection
-* search:
-    ```python
-	if not yxml.search('search for this'): print('search error')
-	```
-* get limits:
-    ```python
-	next_lim = yxml.next_limits 
-    if next_lim: print('Daily limit = {} for {}'.format(next_lim[1], str(next_lim[0])))
-    ```
-	
-See more examples in tester.py.
+See comments in yxmlengine.py and examples in tester.py.
