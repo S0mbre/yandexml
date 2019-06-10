@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright: (c) 2018, Iskander Shafikov <s00mbre@gmail.com>
+# Copyright: (c) 2019, Iskander Shafikov <s00mbre@gmail.com>
 # GNU General Public License v3.0+ (see LICENSE.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 """
 This file is part of the Pynxml project hosted at https://github.com/S0mbre/yandexml.
@@ -83,3 +83,5 @@ HTML_LOGO_TEMPLATE_DIV = \
 """
 
 DEFAULT_LOGO_STYLE = {'float': 'left', 'padding': '10px', 'width': '120 px', 'font-size': '12pt'}
+
+IMAGE_TYPES = {'gif': '.gif', 'jpeg': '.jpg', 'png': '.png', 'jpg': '.jpg'}

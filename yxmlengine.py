@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright: (c) 2018, Iskander Shafikov <s00mbre@gmail.com>
+# Copyright: (c) 2019, Iskander Shafikov <s00mbre@gmail.com>
 # GNU General Public License v3.0+ (see LICENSE.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 """
 This file is part of the Pynxml project hosted at https://github.com/S0mbre/yandexml.
@@ -13,6 +13,7 @@ import requests
 import ipaddress
 import json
 import subprocess
+import hashlib
 import xml.etree.ElementTree as ET
 from datetime import datetime as dt
 from globalvars import *
@@ -391,9 +392,9 @@ class Yandexml:
         try:
             # получаем параметры капчи от яндекса из XML... (если их нет -- ошибка парсинга)
             tree = ET.fromstring(result_xml)
-            captcha_url = tree.find('./captcha-img-url').text            # URL картинки капчи
-            captcha_key = tree.find('./captcha-key').text                # ключ капчи
-            #captcha_status = tree.find('./captcha-status').text         # статус (если повторная попытка = "failed")
+            captcha_url = self._get_node(tree, './captcha-img-url')      # URL картинки капчи
+            captcha_key = self._get_node(tree, './captcha-key')          # ключ капчи
+            #captcha_status = self._get_node(tree, './captcha-status')   # статус (если повторная попытка = "failed")
             
             # передаем капчу на обработку в коллбак функцию
             result = self._solve_captcha(captcha_url)
@@ -489,19 +490,56 @@ class Yandexml:
         """
         """
         if self.process_captcha(self._get_sample_captcha(), retries, False):
-            print('КАПЧА РАСПОЗНАНА!')        
+            print('КАПЧА РАСПОЗНАНА!') 
+            
+    def download_sample_captchas(self, ncapcthas=1, directory=None):
+        """
+        Скачивает указанное количество образцов капчей в указанный каталог.
+        """
+        root = directory if not directory is None else os.path.expanduser('~/Desktop')
+        out_paths = []
+        for i in range(ncapcthas):
+            url = self._get_sample_captcha(True)
+            if not url:
+                print_err('Невозможно скачать образец капчи! Нет URL изображения!')
+                continue
+            try:
+                res = requests.get(url, proxies=self.proxy, timeout=REQ_TIMEOUT, headers=self.search_headers)
+                if res.status_code != 200:
+                    print_err('Невозможно скачать образец капчи! Код HTTP = {}'.format(res.status_code))
+                    continue
+                ftype = res.headers['Content-Type'].split('/')[-1].split(';')[0] if 'Content-Type' in res.headers else 'gif'
+                if not ftype in IMAGE_TYPES:
+                    print_err('Неопознанный формат изображения: ' + ftype)
+                    continue
+                fname = os.path.join(root, hashlib.md5(url.encode()).hexdigest() + IMAGE_TYPES[ftype])
+                with open(fname, 'wb') as f:
+                    f.write(res.content)
+                print_dbg('SAVED:\t' + os.path.basename(fname))
+                out_paths.append(fname)
+                
+            except Exception as err:
+                print_err(str(err))
+                continue
+            
+        return out_paths
+                
         
-    def _get_sample_captcha(self):
+    def _get_sample_captcha(self, only_image=False):
         try:
             resp = requests.get('https://yandex.{}/search/xml?&query={}&user={}&key={}&showmecaptcha=yes'.format(
                     'com' if self.mode == 'world' else 'ru', SAMPLE_CAPTCHA_QUERY, self.user, self.apikey), 
                     proxies=self.proxy, timeout=REQ_TIMEOUT, headers=self.search_headers) 
-            print_dbg(resp.text)                   
-            return resp.text
+            print_dbg(resp.text)  
+            print_dbg('\n\n' + str(resp.headers)) 
+            print_dbg('\n\n' + str(resp.cookies)) 
+            if not only_image: return resp.text
+            tree = ET.fromstring(resp.text)            
+            return self._get_node(tree, './captcha-img-url')
             
         except Exception as err:
             print_err(str(err))
-            return False
+            return None
         
         
     def _get_node(self, node, nodename, default=''):
